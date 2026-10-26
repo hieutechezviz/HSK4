@@ -27,6 +27,9 @@ button{font-family:inherit;font-size:inherit;cursor:pointer;border:0;background:
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--jade-900);color:#e9f7f3}
 .bar{max-width:1080px;margin:0 auto;padding:12px 18px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .brand{font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:9px;font-size:16px}
+.visits{display:flex;gap:6px;font-size:12.5px;font-weight:600;color:#cfeee6}
+.visits span{background:#0c524a;border-radius:999px;padding:4px 10px;white-space:nowrap}
+.visits .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#4ade80;margin-right:5px;vertical-align:1px;box-shadow:0 0 0 3px rgba(74,222,128,.22)}
 .brand span.mark{width:30px;height:30px;border-radius:9px;background:var(--jade-500);display:grid;place-items:center;font-family:"Noto Serif SC",serif;font-size:17px;color:#04302c}
 .search{flex:1;min-width:190px;position:relative}
 .search input{width:100%;padding:9px 14px 9px 36px;border-radius:999px;border:1px solid transparent;background:#0c524a;color:#eafaf6;font-size:14.5px}
@@ -201,6 +204,10 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 18px 30px}
 <header>
   <div class="bar">
     <div class="brand"><span class="mark">汉</span> Ôn tập HSK 4</div>
+    <div class="visits" id="visits" hidden>
+      <span title="Lượt truy cập trong tháng">👁 <b id="vMonth">–</b> lượt tháng <b id="vMonthName"></b></span>
+      <span title="Số người đang mở trang"><i class="dot"></i><b id="vOnline">–</b> đang online</span>
+    </div>
     <div class="search">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9fd4c9" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
       <input id="q" type="search" placeholder="Tìm từ: 质量, zhiliang, chất lượng…" autocomplete="off">
@@ -4006,6 +4013,53 @@ document.addEventListener('keydown',e=>{
 });
 
 setLesson(LESSONS[LESSONS.length-1].id);
+</script>
+
+<!-- ================= LƯỢT TRUY CẬP (Firebase Realtime Database) ================= -->
+<script>
+/* Dán firebaseConfig của project vào đây. Để null thì ô đếm lượt truy cập bị ẩn. */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDLGbO1ncwESrurxFuF0mWhYDYfkh0WVrY",
+  authDomain: "hsk4-890c9.firebaseapp.com",
+  databaseURL: "https://hsk4-890c9-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "hsk4-890c9",
+  storageBucket: "hsk4-890c9.firebasestorage.app",
+  messagingSenderId: "870083549105",
+  appId: "1:870083549105:web:bb8d92f599949fb5040f90"
+};
+</script>
+<script>
+(function(){
+  if(!FIREBASE_CONFIG) return;
+  const load=src=>new Promise((ok,fail)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=fail;document.head.appendChild(s);});
+  const SDK='https://www.gstatic.com/firebasejs/10.12.2/';
+  load(SDK+'firebase-app-compat.js').then(()=>load(SDK+'firebase-database-compat.js')).then(()=>{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const db=firebase.database();
+    const now=new Date(), p2=n=>String(n).padStart(2,'0');
+    const month=`${now.getFullYear()}-${p2(now.getMonth()+1)}`, day=`${month}-${p2(now.getDate())}`;
+    $('#vMonthName').textContent=now.getMonth()+1;
+    $('#visits').hidden=false;
+
+    // Mỗi trình duyệt chỉ được tính 1 lượt mỗi ngày
+    let counted=false;
+    try{counted=localStorage.getItem('hsk4-visit')===day;}catch(e){}
+    const monthRef=db.ref('stats/months/'+month);
+    if(!counted){
+      monthRef.transaction(n=>(n||0)+1).then(()=>{try{localStorage.setItem('hsk4-visit',day);}catch(e){}});
+    }
+    monthRef.on('value',s=>{$('#vMonth').textContent=(s.val()||0).toLocaleString('vi-VN');});
+
+    // Đang online: mỗi tab ghi một nút, tự xoá khi đóng tab hoặc mất mạng
+    const me=db.ref('presence').push();
+    db.ref('.info/connected').on('value',s=>{
+      if(s.val()!==true) return;
+      // Ghi trước rồi mới đăng ký tự xoá: quy tắc chỉ cho xoá nút đã tồn tại
+      me.set(true).then(()=>me.onDisconnect().remove()).catch(()=>{});
+    });
+    db.ref('presence').on('value',s=>{$('#vOnline').textContent=s.numChildren();});
+  }).catch(()=>{});
+})();
 </script>
 </body>
 </html>
