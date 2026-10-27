@@ -54,7 +54,14 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:va
 .stat .l{font-size:13px;color:var(--muted)}
 
 /* ---------- tabs ---------- */
-nav.tabs{max-width:1080px;margin:18px auto 0;padding:0 18px;display:flex;gap:8px;overflow-x:auto}
+nav.tabs{max-width:1080px;margin:10px auto 0;padding:8px 18px;display:flex;gap:8px;overflow-x:auto;position:sticky;top:calc(var(--hdr,0px) + env(safe-area-inset-top,0px));z-index:30;background:var(--bg)}
+.secnav{display:flex;justify-content:space-between;gap:10px;margin:26px 0 6px;padding-top:16px;border-top:1px solid var(--line)}
+.secnav button{padding:10px 16px;border-radius:12px;border:1px solid var(--line);background:var(--paper);font-weight:600;font-size:14.5px;color:var(--jade-700)}
+.secnav button.next{margin-left:auto;background:var(--jade-700);border-color:var(--jade-700);color:#fff}
+@media(max-width:640px){header{position:relative;top:0}
+  nav.tabs{padding:8px 12px;gap:5px} nav#tabs button{flex:1;padding:8px 6px;font-size:14px}}
+.swipe-hint{text-align:center;font-size:12.5px;color:var(--muted);margin-top:8px}
+@media(hover:hover){.swipe-hint{display:none}}
 nav.tabs button{white-space:nowrap;padding:9px 16px;border-radius:999px;background:var(--paper);border:1px solid var(--line);font-size:14.5px;font-weight:500;color:var(--muted)}
 nav.tabs button[aria-selected="true"]{background:var(--jade-700);border-color:var(--jade-700);color:#fff;font-weight:600}
 
@@ -3814,11 +3821,46 @@ $('#lessonpick').onclick=e=>{const b=e.target.closest('button');if(!b)return;set
 /* ---- tabs ---- */
 const TABS=[['s-vocab','Từ vựng'],['s-gram','Ngữ pháp'],['s-read','Bài đọc'],['s-test','Kiểm tra']];
 $('#tabs').innerHTML=TABS.map(([id,n],i)=>`<button role="tab" data-s="${id}" aria-selected="${i===0}">${n}</button>`).join('');
-$('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;
-  $$('#tabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
-  TABS.forEach(([id])=>$('#'+id).hidden=(id!==b.dataset.s));
-  window.scrollTo({top:0,behavior:'smooth'});
-};
+// Thanh chọn phần dính ngay dưới header: đo chiều cao header để đặt vị trí dính
+// Màn hình nhỏ: header không dính (đỡ chiếm chỗ), chỉ thanh chọn phần dính ở đỉnh
+const hdrH=()=>getComputedStyle($('header')).position==='sticky'?$('header').offsetHeight:0;
+const syncHdr=()=>document.documentElement.style.setProperty('--hdr',hdrH()+'px');
+addEventListener('resize',syncHdr);
+syncHdr(); new ResizeObserver(syncHdr).observe($('header'));
+
+let curTab=0;
+function goTab(i){
+  if(i<0||i>=TABS.length) return;
+  curTab=i;
+  $$('#tabs button').forEach((x,j)=>x.setAttribute('aria-selected',j===i));
+  TABS.forEach(([id],j)=>$('#'+id).hidden=(j!==i));
+  // Chỉ cuộn lên đầu phần mới khi đang ở dưới thanh chọn phần, không về tận đầu trang
+  const nav=$('#tabs'), top=$('main').getBoundingClientRect().top+scrollY-hdrH()-nav.offsetHeight;
+  if(scrollY>top) window.scrollTo({top,behavior:'smooth'});
+}
+$('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;goTab(TABS.findIndex(([id])=>id===b.dataset.s));};
+
+// Nút chuyển phần ở cuối mỗi phần
+TABS.forEach(([id],i)=>{
+  const d=document.createElement('div');d.className='secnav';
+  d.innerHTML=(i>0?`<button data-go="${i-1}">← ${TABS[i-1][1]}</button>`:'')+
+              (i<TABS.length-1?`<button class="next" data-go="${i+1}">${TABS[i+1][1]} →</button>`:'');
+  const h=document.createElement('div');h.className='swipe-hint';h.textContent='Mẹo: vuốt sang trái / phải để chuyển phần';
+  $('#'+id).append(d,h);
+});
+$('main').addEventListener('click',e=>{const b=e.target.closest('.secnav button');if(b)goTab(+b.dataset.go);});
+
+// Vuốt ngang trên điện thoại để chuyển phần (bỏ qua thẻ từ và bảng cuộn ngang)
+let sx=null,sy=0;
+$('main').addEventListener('touchstart',e=>{
+  if(e.touches.length!==1||e.target.closest('.deck,.cmp,input,textarea')){sx=null;return;}
+  sx=e.touches[0].clientX;sy=e.touches[0].clientY;
+},{passive:true});
+$('main').addEventListener('touchend',e=>{
+  if(sx===null)return;
+  const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy; sx=null;
+  if(Math.abs(dx)>70&&Math.abs(dy)<Math.abs(dx)*.5) goTab(curTab+(dx<0?1:-1));
+},{passive:true});
 
 function setLesson(id){
   L=LESSONS.find(l=>l.id===id);
@@ -3885,8 +3927,7 @@ $('#listGrid').onclick=e=>{
 };
 $('#q').oninput=e=>{const v=e.target.value;drawList(v);
   if(v.trim()){$('#list').hidden=false;$('#toggleList').textContent='Ẩn danh sách';
-    $$('#tabs button').forEach(x=>x.setAttribute('aria-selected',x.dataset.s==='s-vocab'));
-    TABS.forEach(([id])=>$('#'+id).hidden=(id!=='s-vocab'));}
+    if(curTab!==0) goTab(0);}
 };
 
 /* ================= NGỮ PHÁP ================= */
