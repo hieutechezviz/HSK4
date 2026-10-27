@@ -3828,15 +3828,19 @@ const syncHdr=()=>document.documentElement.style.setProperty('--hdr',hdrH()+'px'
 addEventListener('resize',syncHdr);
 syncHdr(); new ResizeObserver(syncHdr).observe($('header'));
 
-let curTab=0;
+let curTab=0, tabPos={};   // tabPos: vị trí cuộn đã đọc tới của từng phần (xoá khi đổi bài)
+const secTop=()=>$('main').getBoundingClientRect().top+scrollY-hdrH()-$('#tabs').offsetHeight;
 function goTab(i){
-  if(i<0||i>=TABS.length) return;
+  if(i<0||i>=TABS.length||i===curTab) return;
+  const top=secTop();
+  // Nhớ chỗ đang đọc của phần cũ (chỉ khi đã cuộn qua thanh chọn phần)
+  if(scrollY>top) tabPos[curTab]=scrollY; else delete tabPos[curTab];
   curTab=i;
   $$('#tabs button').forEach((x,j)=>x.setAttribute('aria-selected',j===i));
   TABS.forEach(([id],j)=>$('#'+id).hidden=(j!==i));
-  // Chỉ cuộn lên đầu phần mới khi đang ở dưới thanh chọn phần, không về tận đầu trang
-  const nav=$('#tabs'), top=$('main').getBoundingClientRect().top+scrollY-hdrH()-nav.offsetHeight;
-  if(scrollY>top) window.scrollTo({top,behavior:'smooth'});
+  // Quay lại đúng chỗ đã đọc; phần chưa mở thì hiện từ đầu phần (ngay dưới thanh chọn), không về đầu trang
+  if(tabPos[i]!=null) window.scrollTo({top:tabPos[i],behavior:'instant'});
+  else if(scrollY>top) window.scrollTo({top,behavior:'instant'});
 }
 $('#tabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;goTab(TABS.findIndex(([id])=>id===b.dataset.s));};
 
@@ -3873,6 +3877,7 @@ function setLesson(id){
     ['📖',L.read.length,'bài đọc'],
     ['✅',L.read.reduce((s,r)=>s+r.quiz.length,0)+15,'câu luyện tập']
   ].map(([i,n,l])=>`<div class="stat"><div style="font-size:19px">${i}</div><div><div class="n">${n}</div><div class="l">${l}</div></div></div>`).join('');
+  tabPos={};
   order=L.vocab.map((_,i)=>i);pos=0;drawCard();drawList($('#q').value);drawGram();drawRead();buildTest();
 }
 
@@ -4032,7 +4037,7 @@ function buildTest(){
   updateScore();
 }
 $('#testList').onclick=e=>answer(e,'test');
-$('#newTest').onclick=()=>{buildTest();window.scrollTo({top:0,behavior:'smooth'});};
+$('#newTest').onclick=()=>{buildTest();if(scrollY>secTop())window.scrollTo({top:secTop(),behavior:'smooth'});};
 function updateScore(){
   const all=$$('#testList .q'), done=all.filter(q=>$('.opt:disabled',q));
   const right=done.filter(q=>{const chosen=$('.opt.wrong',q);return !chosen;}).length;
