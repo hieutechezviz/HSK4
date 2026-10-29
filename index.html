@@ -105,6 +105,24 @@ section[hidden]{display:none}
 .ex .exvi{color:var(--muted);font-size:13.5px}
 .hint{text-align:center;color:var(--muted);font-size:13px}
 .deck-ctrl{display:flex;gap:9px;justify-content:center;align-items:center;flex-wrap:wrap}
+/* ---------- đánh dấu đã thuộc + ôn nhiều bài ---------- */
+.markrow{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
+.btn.mark{font-weight:600}
+.btn.mark[aria-pressed="true"]{background:#16a34a;border-color:#16a34a;color:#fff}
+.review{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:0 auto 16px;max-width:560px;box-shadow:var(--shadow);display:grid;gap:12px}
+.review .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14.5px}
+.review select{padding:7px 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:inherit;font:inherit}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{padding:7px 12px;font-size:14px;color:var(--muted);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--jade-700);color:#fff;font-weight:600}
+.review .count{font-size:13.5px;color:var(--muted)}
+.reviewbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;max-width:560px;margin:0 auto 12px;padding:9px 12px;border-radius:12px;background:var(--jade-50);border:1px solid var(--jade-100);font-size:14px;font-weight:600;color:var(--jade-700)}
+.review[hidden],.reviewbar[hidden],.deck[hidden]{display:none}
+.emptydeck{text-align:center;padding:40px 16px;color:var(--muted);background:var(--paper);border:1px dashed var(--line);border-radius:var(--r)}
+.item.known{border-color:#86efac}
+.item .kmark{margin-top:8px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.item.known .kmark{background:#16a34a;border-color:#16a34a;color:#fff}
 .progress{height:6px;border-radius:999px;background:var(--jade-100);overflow:hidden}
 .progress i{display:block;height:100%;background:var(--jade-500);transition:width .3s}
 
@@ -242,9 +260,25 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 18px 30px}
         <button class="btn" id="shuffle">Xáo thẻ</button>
         <button class="btn" id="reset">Về thẻ đầu</button>
         <button class="btn" id="toggleList">Xem danh sách</button>
+        <button class="btn amber" id="reviewBtn">📚 Ôn nhiều bài</button>
       </div>
     </div>
 
+    <div class="review" id="reviewPanel" hidden>
+      <div class="row">Ôn từ <select id="rFrom" aria-label="Từ bài"></select> đến <select id="rTo" aria-label="Đến bài"></select></div>
+      <div class="row">
+        <div class="seg" id="rFilter">
+          <button data-f="all" aria-pressed="false">Tất cả</button>
+          <button data-f="todo" aria-pressed="true">Chưa thuộc</button>
+          <button data-f="known" aria-pressed="false">Đã thuộc</button>
+        </div>
+        <label><input type="checkbox" id="rShuf" checked> Xáo thứ tự</label>
+      </div>
+      <div class="row"><button class="btn solid" id="rStart">Bắt đầu ôn</button><span class="count" id="rCount"></span></div>
+    </div>
+    <div class="reviewbar" id="reviewBar" hidden><span id="rLabel"></span><button class="btn" id="rExit">Thoát ôn tập</button></div>
+
+    <div class="emptydeck" id="emptyDeck" hidden></div>
     <div class="deck" id="deck">
       <div class="progress"><i id="pbar"></i></div>
       <div class="card" id="card" tabindex="0" role="button" aria-label="Lật thẻ">
@@ -269,6 +303,10 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 18px 30px}
         <button class="btn" id="prev">← Thẻ trước</button>
         <button class="btn solid" id="flip">Lật thẻ</button>
         <button class="btn" id="next">Thẻ sau →</button>
+      </div>
+      <div class="markrow">
+        <button class="btn mark" id="mark" aria-pressed="false">☆ Đánh dấu đã thuộc</button>
+        <span id="knownStat"></span>
       </div>
     </div>
 
@@ -3878,51 +3916,120 @@ function setLesson(id){
     ['✅',L.read.reduce((s,r)=>s+r.quiz.length,0)+15,'câu luyện tập']
   ].map(([i,n,l])=>`<div class="stat"><div style="font-size:19px">${i}</div><div><div class="n">${n}</div><div class="l">${l}</div></div></div>`).join('');
   tabPos={};
-  order=L.vocab.map((_,i)=>i);pos=0;drawCard();drawList($('#q').value);drawGram();drawRead();buildTest();
+  setDeck(L.vocab.map(w=>({w,l:L})),null);drawList($('#q').value);drawGram();drawRead();buildTest();
+  syncStats();
+}
+
+/* ================= ĐÃ THUỘC (lưu trong trình duyệt) ================= */
+const KNOWN_KEY='hsk4-known';
+let known=new Set();
+try{known=new Set(JSON.parse(localStorage.getItem(KNOWN_KEY)||'[]'));}catch(e){}
+const kid=(l,w)=>l.id+'|'+w.hz;
+const isKnown=(l,w)=>known.has(kid(l,w));
+function toggleKnown(l,w){
+  const k=kid(l,w); known.has(k)?known.delete(k):known.add(k);
+  try{localStorage.setItem(KNOWN_KEY,JSON.stringify([...known]));}catch(e){}
+}
+const knownIn=l=>l.vocab.filter(w=>isKnown(l,w)).length;
+function syncStats(){
+  const n=$('#hStats .stat .l');
+  if(n) n.textContent=`từ mới · đã thuộc ${knownIn(L)}`;
+  $$('#lessonpick button').forEach(b=>{const l=LESSONS.find(x=>x.id===+b.dataset.id);
+    b.title=`Đã thuộc ${knownIn(l)}/${l.vocab.length} từ`;});
 }
 
 /* ================= THẺ TỪ VỰNG ================= */
+// deck: danh sách {w,l} đang ôn — một bài, hoặc nhiều bài khi bật "Ôn nhiều bài"
+let deck=[], review=null;
+function setDeck(items,rv){
+  deck=items; review=rv; order=deck.map((_,i)=>i); pos=0;
+  if(rv&&rv.shuf) order=shuffled(order);
+  $('#reviewBar').hidden=!rv;
+  if(rv) $('#rLabel').textContent=`Đang ôn Bài ${rv.from}–${rv.to} · ${{all:'tất cả',todo:'chưa thuộc',known:'đã thuộc'}[rv.f]} · ${deck.length} từ`;
+  drawCard(); if(L) drawList($('#q').value);
+}
+const cur=()=>deck[order[pos]];
 function drawCard(){
-  const w=L.vocab[order[pos]];
+  const empty=!order.length;
+  $('#deck').hidden=empty; $('#emptyDeck').hidden=!empty;
+  if(empty){$('#emptyDeck').innerHTML=review&&review.f==='todo'
+    ?'🎉 Bạn đã thuộc hết từ trong các bài đã chọn. Chọn “Tất cả” để ôn lại.'
+    :'Không có từ nào trong lựa chọn này.';return;}
+  const {w,l}=cur();
   $('#card').classList.remove('flipped');
   $('#fHz').textContent=w.hz; $('#fPos').textContent=w.pos;
-  $('#fIdx').textContent=$('#bIdx').textContent=`${pos+1}/${order.length}`;
+  $('#fIdx').textContent=$('#bIdx').textContent=`${pos+1}/${order.length}`+(review?` · Bài ${l.id}`:'');
+  const k=isKnown(l,w);
+  $('#mark').setAttribute('aria-pressed',k); $('#mark').textContent=k?'✓ Đã thuộc':'☆ Đánh dấu đã thuộc';
+  const inDeck=deck.filter(x=>isKnown(x.l,x.w)).length;
+  $('#knownStat').textContent=`Đã thuộc ${inDeck}/${deck.length} từ`;
   $('#bPy').textContent=w.py; $('#bVi').textContent=w.vi;
   $('#bHv').textContent=w.hv?'Hán Việt: '+w.hv.toUpperCase():''; $('#bHv').hidden=!w.hv;
   $('#wNote').innerHTML=w.note?`<b class="t">⚠ Lưu ý về từ ${esc(w.hz)}:</b>${w.note}`:''; syncNote();
   $('#bEx').innerHTML=`<div class="exhz">${esc(w.ex.hz)}</div><div class="expy">${esc(w.ex.py)}</div><div class="exvi">${esc(w.ex.vi)}</div>`;
   $('#pbar').style.width=((pos+1)/order.length*100)+'%';
 }
-function syncNote(){const w=L.vocab[order[pos]];$('#wNote').hidden=!(w.note&&$('#card').classList.contains('flipped'));}
-const step=d=>{pos=(pos+d+order.length)%order.length;drawCard();};
+function syncNote(){const w=cur().w;$('#wNote').hidden=!(w.note&&$('#card').classList.contains('flipped'));}
+const step=d=>{if(!order.length)return;pos=(pos+d+order.length)%order.length;drawCard();};
+$('#mark').onclick=()=>{const {w,l}=cur();toggleKnown(l,w);
+  const flipped=$('#card').classList.contains('flipped');drawCard();
+  if(flipped){$('#card').classList.add('flipped');syncNote();}
+  drawList($('#q').value);syncStats();};
 $('#next').onclick=()=>step(1); $('#prev').onclick=()=>step(-1);
 $('#flip').onclick=()=>{$('#card').classList.toggle('flipped');syncNote();};
 $('#card').onclick=e=>{if(!e.target.closest('#fSay')){$('#card').classList.toggle('flipped');syncNote();}};
 $('#card').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#card').classList.toggle('flipped');syncNote();}
   if(e.key==='ArrowRight')step(1); if(e.key==='ArrowLeft')step(-1);};
-$('#fSay').onclick=e=>{e.stopPropagation();say(L.vocab[order[pos]].hz);};
+$('#fSay').onclick=e=>{e.stopPropagation();say(cur().w.hz);};
 $('#shuffle').onclick=()=>{order=shuffled(order);pos=0;drawCard();};
-$('#reset').onclick=()=>{order=L.vocab.map((_,i)=>i);pos=0;drawCard();};
+$('#reset').onclick=()=>{order=deck.map((_,i)=>i);pos=0;drawCard();};
+
+/* ---- Ôn nhiều bài: chọn Bài X → Bài Y, lọc theo đã/chưa thuộc ---- */
+const opts=LESSONS.map(l=>`<option value="${l.id}">Bài ${l.id}</option>`).join('');
+$('#rFrom').innerHTML=$('#rTo').innerHTML=opts;
+$('#rFrom').value=LESSONS[0].id; $('#rTo').value=LESSONS[9]?LESSONS[9].id:LESSONS[LESSONS.length-1].id;
+let rF='todo';
+function reviewItems(){
+  let a=+$('#rFrom').value,b=+$('#rTo').value; if(a>b)[a,b]=[b,a];
+  const items=LESSONS.filter(l=>l.id>=a&&l.id<=b).flatMap(l=>l.vocab.map(w=>({w,l})))
+    .filter(({w,l})=>rF==='all'||(rF==='known')===isKnown(l,w));
+  return {items,a,b};
+}
+const syncRCount=()=>{const {items}=reviewItems();$('#rCount').textContent=`${items.length} từ`;};
+$('#reviewBtn').onclick=()=>{const p=$('#reviewPanel');p.hidden=!p.hidden;if(!p.hidden)syncRCount();};
+$('#rFrom').onchange=$('#rTo').onchange=syncRCount;
+$('#rFilter').onclick=e=>{const b=e.target.closest('button');if(!b)return;rF=b.dataset.f;
+  $$('#rFilter button').forEach(x=>x.setAttribute('aria-pressed',x===b));syncRCount();};
+$('#rStart').onclick=()=>{const {items,a,b}=reviewItems();
+  setDeck(items,{from:a,to:b,f:rF,shuf:$('#rShuf').checked});
+  $('#reviewPanel').hidden=true;$('#list').hidden=true;$('#toggleList').textContent='Xem danh sách';};
+$('#rExit').onclick=()=>setDeck(L.vocab.map(w=>({w,l:L})),null);
 $('#toggleList').onclick=()=>{const l=$('#list');l.hidden=!l.hidden;$('#toggleList').textContent=l.hidden?'Xem danh sách':'Ẩn danh sách';};
 
 const bare=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 function drawList(kw=''){
   const k=kw.trim().toLowerCase(), kb=bare(k);
   // Có từ khóa thì tìm trong tất cả các bài, không thì chỉ hiện bài đang chọn
-  const src=k?LESSONS.flatMap(l=>l.vocab.map((w,i)=>({w,l,i}))):L.vocab.map((w,i)=>({w,l:L,i}));
+  // Đang ôn nhiều bài thì danh sách là các từ đang ôn
+  const src=k?LESSONS.flatMap(l=>l.vocab.map((w,i)=>({w,l,i})))
+    :review?deck.map(({w,l})=>({w,l,i:l.vocab.indexOf(w)})):L.vocab.map((w,i)=>({w,l:L,i}));
   const hits=src.filter(({w})=>!k||w.hz.includes(k)||bare(w.py).includes(kb)||bare(w.vi).includes(kb)||bare(w.hv||'').includes(kb));
   const nL=new Set(hits.map(h=>h.l.id)).size;
   $('#listHead').hidden=!k;
   $('#listHead').textContent=hits.length?`Tìm thấy ${hits.length} từ trong ${nL} bài. Bấm nhãn “Bài …” để mở thẻ của từ đó.`:'';
-  $('#listGrid').innerHTML=hits.length?hits.map(({w,l,i})=>`<div class="item">
+  $('#listGrid').innerHTML=hits.length?hits.map(({w,l,i})=>`<div class="item${isKnown(l,w)?' known':''}">
     <button class="say" data-hz="${esc(w.hz)}" aria-label="Nghe ${esc(w.hz)}">🔊</button>
-    ${k?`<button class="lsn${l===L?' cur':''}" data-l="${l.id}" data-i="${i}">Bài ${l.id}</button>`:''}
+    ${k||review?`<button class="lsn${l===L?' cur':''}" data-l="${l.id}" data-i="${i}">Bài ${l.id}</button>`:''}
     <div class="hz">${esc(w.hz)}</div><div class="py">${esc(w.py)}</div>${w.hv?`<div class="hv">${esc(w.hv.toUpperCase())}</div>`:''}
-    <div class="vi">${esc(w.vi)}</div><div class="pos">${esc(w.pos)}</div>${w.note?`<span class="notedot" title="Có lưu ý"></span><details><summary>Lưu ý</summary><div>${w.note}</div></details>`:''}</div>`).join('')
+    <div class="vi">${esc(w.vi)}</div><div class="pos">${esc(w.pos)}</div>${w.note?`<span class="notedot" title="Có lưu ý"></span><details><summary>Lưu ý</summary><div>${w.note}</div></details>`:''}
+    <button class="kmark" data-l="${l.id}" data-i="${i}">${isKnown(l,w)?'✓ Đã thuộc':'☆ Đánh dấu'}</button></div>`).join('')
     :`<p style="color:var(--muted)">Không có từ nào khớp. Thử gõ chữ Hán, pinyin không dấu, hoặc nghĩa tiếng Việt.</p>`;
 }
 $('#listGrid').onclick=e=>{
   const b=e.target.closest('.say');if(b){say(b.dataset.hz);return;}
+  const m=e.target.closest('.kmark');
+  if(m){const l=LESSONS.find(x=>x.id===+m.dataset.l);toggleKnown(l,l.vocab[+m.dataset.i]);
+    drawList($('#q').value);syncStats();if(order.length){const f=$('#card').classList.contains('flipped');drawCard();if(f){$('#card').classList.add('flipped');syncNote();}}return;}
   const j=e.target.closest('.lsn');if(!j)return;
   // Chuyển sang bài chứa từ và mở đúng thẻ của từ đó
   $('#q').value='';setLesson(+j.dataset.l);
