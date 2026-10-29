@@ -15,6 +15,17 @@
         ".write": "(!data.exists() && newData.val() === true) || (data.exists() && !newData.exists())",
         ".validate": "$id.length <= 30"
       }
+    },
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "known": {
+          "$k": {
+            ".validate": "newData.val() === true && $k.length <= 40"
+          }
+        }
+      }
     }
   }
 }

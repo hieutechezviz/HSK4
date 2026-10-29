@@ -108,6 +108,9 @@ section[hidden]{display:none}
 /* ---------- đánh dấu đã thuộc + ôn nhiều bài ---------- */
 .markrow{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
 .btn.mark{font-weight:600}
+.syncrow{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted);text-align:center}
+.syncrow[hidden]{display:none}
+.syncrow .btn{font-size:13px;padding:6px 12px}
 .btn.mark[aria-pressed="true"]{background:#16a34a;border-color:#16a34a;color:#fff}
 .review{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:0 auto 16px;max-width:560px;box-shadow:var(--shadow);display:grid;gap:12px}
 .review .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:14.5px}
@@ -307,6 +310,11 @@ footer{text-align:center;color:var(--muted);font-size:13px;padding:0 18px 30px}
       <div class="markrow">
         <button class="btn mark" id="mark" aria-pressed="false">☆ Đánh dấu đã thuộc</button>
         <span id="knownStat"></span>
+      </div>
+      <div class="syncrow" id="syncRow" hidden>
+        <span id="syncMsg">Dấu “đã thuộc” đang lưu trên trình duyệt này.</span>
+        <button class="btn" id="syncIn">🔄 Đăng nhập Google để đồng bộ</button>
+        <button class="btn" id="syncOut" hidden>Đăng xuất</button>
       </div>
     </div>
 
@@ -3926,9 +3934,16 @@ let known=new Set();
 try{known=new Set(JSON.parse(localStorage.getItem(KNOWN_KEY)||'[]'));}catch(e){}
 const kid=(l,w)=>l.id+'|'+w.hz;
 const isKnown=(l,w)=>known.has(kid(l,w));
+const saveKnown=()=>{try{localStorage.setItem(KNOWN_KEY,JSON.stringify([...known]));}catch(e){}};
+let onKnownToggle=null;   // gán bởi phần đồng bộ Firebase khi đã đăng nhập
 function toggleKnown(l,w){
-  const k=kid(l,w); known.has(k)?known.delete(k):known.add(k);
-  try{localStorage.setItem(KNOWN_KEY,JSON.stringify([...known]));}catch(e){}
+  const k=kid(l,w), on=!known.has(k); on?known.add(k):known.delete(k);
+  saveKnown(); if(onKnownToggle) onKnownToggle(k,on);
+}
+// Vẽ lại mọi chỗ hiện trạng thái đã thuộc (dùng khi dữ liệu đồng bộ về)
+function refreshKnownUI(){
+  if(order.length){const f=$('#card').classList.contains('flipped');drawCard();if(f){$('#card').classList.add('flipped');syncNote();}}
+  drawList($('#q').value);syncStats();
 }
 const knownIn=l=>l.vocab.filter(w=>isKnown(l,w)).length;
 function syncStats(){
@@ -3971,10 +3986,7 @@ function drawCard(){
 }
 function syncNote(){const w=cur().w;$('#wNote').hidden=!(w.note&&$('#card').classList.contains('flipped'));}
 const step=d=>{if(!order.length)return;pos=(pos+d+order.length)%order.length;drawCard();};
-$('#mark').onclick=()=>{const {w,l}=cur();toggleKnown(l,w);
-  const flipped=$('#card').classList.contains('flipped');drawCard();
-  if(flipped){$('#card').classList.add('flipped');syncNote();}
-  drawList($('#q').value);syncStats();};
+$('#mark').onclick=()=>{const {w,l}=cur();toggleKnown(l,w);refreshKnownUI();};
 $('#next').onclick=()=>step(1); $('#prev').onclick=()=>step(-1);
 $('#flip').onclick=()=>{$('#card').classList.toggle('flipped');syncNote();};
 $('#card').onclick=e=>{if(!e.target.closest('#fSay')){$('#card').classList.toggle('flipped');syncNote();}};
@@ -4028,8 +4040,7 @@ function drawList(kw=''){
 $('#listGrid').onclick=e=>{
   const b=e.target.closest('.say');if(b){say(b.dataset.hz);return;}
   const m=e.target.closest('.kmark');
-  if(m){const l=LESSONS.find(x=>x.id===+m.dataset.l);toggleKnown(l,l.vocab[+m.dataset.i]);
-    drawList($('#q').value);syncStats();if(order.length){const f=$('#card').classList.contains('flipped');drawCard();if(f){$('#card').classList.add('flipped');syncNote();}}return;}
+  if(m){const l=LESSONS.find(x=>x.id===+m.dataset.l);toggleKnown(l,l.vocab[+m.dataset.i]);refreshKnownUI();return;}
   const j=e.target.closest('.lsn');if(!j)return;
   // Chuyển sang bài chứa từ và mở đúng thẻ của từ đó
   $('#q').value='';setLesson(+j.dataset.l);
@@ -4186,7 +4197,7 @@ const FIREBASE_CONFIG = {
   if(!FIREBASE_CONFIG) return;
   const load=src=>new Promise((ok,fail)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=fail;document.head.appendChild(s);});
   const SDK='https://www.gstatic.com/firebasejs/10.12.2/';
-  load(SDK+'firebase-app-compat.js').then(()=>load(SDK+'firebase-database-compat.js')).then(()=>{
+  load(SDK+'firebase-app-compat.js').then(()=>Promise.all([load(SDK+'firebase-database-compat.js'),load(SDK+'firebase-auth-compat.js')])).then(()=>{
     firebase.initializeApp(FIREBASE_CONFIG);
     const db=firebase.database();
     const now=new Date(), p2=n=>String(n).padStart(2,'0');
@@ -4211,6 +4222,35 @@ const FIREBASE_CONFIG = {
       me.set(true).then(()=>me.onDisconnect().remove()).catch(()=>{});
     });
     db.ref('presence').on('value',s=>{$('#vOnline').textContent=s.numChildren();});
+
+    // Đồng bộ dấu "đã thuộc" giữa các thiết bị: đăng nhập Google, lưu ở users/{uid}/known
+    const auth=firebase.auth();
+    $('#syncRow').hidden=false;
+    $('#syncIn').onclick=()=>{
+      const p=new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(p).catch(err=>{
+        if(/popup-blocked|operation-not-supported/.test(err.code)) return auth.signInWithRedirect(p);
+        if(!/popup-closed|cancelled-popup/.test(err.code)) $('#syncMsg').textContent='Không đăng nhập được ('+err.code+').';
+      });
+    };
+    $('#syncOut').onclick=()=>auth.signOut();
+    let kref=null;
+    auth.onAuthStateChanged(async user=>{
+      if(kref){kref.off();kref=null;} onKnownToggle=null;
+      $('#syncIn').hidden=!!user; $('#syncOut').hidden=!user;
+      if(!user){$('#syncMsg').textContent='Dấu “đã thuộc” đang lưu trên trình duyệt này.';return;}
+      $('#syncMsg').textContent='Đang đồng bộ…';
+      try{
+        kref=db.ref('users/'+user.uid+'/known');
+        // Lần đầu đăng nhập trên máy này: gộp dấu cũ của máy với dữ liệu trên mạng, không mất từ nào
+        const s=await kref.get(), cloud=s.val()||{}, add={};
+        known.forEach(k=>{if(!cloud[k]) add[k]=true;});
+        if(Object.keys(add).length) await kref.update(add);
+        onKnownToggle=(k,on)=>{(on?kref.child(k).set(true):kref.child(k).remove()).catch(()=>{});};
+        kref.on('value',s=>{known=new Set(Object.keys(s.val()||{}));saveKnown();refreshKnownUI();
+          $('#syncMsg').textContent=`✓ Đã đồng bộ (${user.email}) · ${known.size} từ đã thuộc`;});
+      }catch(e){$('#syncMsg').textContent='Chưa đồng bộ được, dấu vẫn lưu trên máy này.';}
+    });
   }).catch(()=>{});
 })();
 </script>
